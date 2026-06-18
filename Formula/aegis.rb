@@ -1,16 +1,32 @@
 class Aegis < Formula
   desc "Local agent-guard: stops prompt injection, jailbreaks & infra-impersonation against AI agents"
   homepage "https://github.com/pilot-protocol/aegis"
-  url "https://github.com/pilot-protocol/aegis/archive/refs/tags/v0.1.1.tar.gz"
-  sha256 "d3d98c68261426c1f73e3924d8667f44f1c10249c82dd48eba23575c04fb2b33"
+  version "0.1.1"
   license "MIT"
-  head "https://github.com/pilot-protocol/aegis.git", branch: "main"
 
-  depends_on "rust" => :build
+  # Prebuilt binaries — no compiler needed, installs in seconds.
+  on_macos do
+    on_arm do
+      url "https://github.com/pilot-protocol/aegis/releases/download/v0.1.1/aegis-macos-arm64"
+      sha256 "fe9d7d49a60d244706decbb747a40cd16a4a45bb75c074bbf45684f49f61e167"
+    end
+  end
+  on_linux do
+    on_arm do
+      url "https://github.com/pilot-protocol/aegis/releases/download/v0.1.1/aegis-linux-arm64"
+      sha256 "abf2d39fbb74829ba2a793f90081aadf02a560795f5a54219819ba688bd3bf17"
+    end
+    on_intel do
+      url "https://github.com/pilot-protocol/aegis/releases/download/v0.1.1/aegis-linux-x86_64"
+      sha256 "b60a58d17d8b92947c9d24423ebfccff47c1adce1a08d4eaad9c7c9104ecbc91"
+    end
+  end
+
+  # The local judge engine. AEGIS still runs (L1 patterns) without it.
   depends_on "llama.cpp"
 
   def install
-    system "cargo", "install", *std_cargo_args
+    bin.install Dir["aegis*"].first => "aegis"
   end
 
   service do
@@ -26,8 +42,7 @@ class Aegis < Formula
         aegis install-models
       Then protect your agent surfaces:
         aegis init
-        aegis daemon          # or run it in the background:
-        brew services start aegis
+        brew services start aegis     # or: aegis daemon
     EOS
   end
 
