@@ -14,11 +14,11 @@ class Aegis < Formula
   on_linux do
     on_arm do
       url "https://github.com/pilot-protocol/aegis/releases/download/v0.1.3/aegis-linux-arm64"
-      sha256 "PLACEHOLDER_linux_arm64"
+      sha256 "09b4c0deac2de3a5bf73ab4e59e238293f6d4bfcb49ba94d810819f6e5311107"
     end
     on_intel do
       url "https://github.com/pilot-protocol/aegis/releases/download/v0.1.3/aegis-linux-x86_64"
-      sha256 "PLACEHOLDER_linux_x86_64"
+      sha256 "411cbf7860fa38f4540f44b1f401833d5d14c2837e980e0f8360b49353297ba2"
     end
   end
 
