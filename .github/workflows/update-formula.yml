@@ -1,0 +1,220 @@
+name: Update formula
+
+# Self-updating Homebrew formula for AEGIS.
+#
+# Polls the PUBLIC latest release of pilot-protocol/aegis every 30 minutes
+# (and on manual dispatch). When a newer version than the one pinned in
+# Formula/aegis.rb is found, it downloads that release's four prebuilt
+# binaries, computes their sha256 in-workflow (aegis releases ship raw
+# binaries, NOT a checksums.txt), regenerates the formula with the new
+# version + per-platform url/sha256, and commits the change to THIS repo
+# using the built-in GITHUB_TOKEN.
+#
+# Token: NONE new. The aegis release is public (no auth to read), and the
+# commit is to this same repo, which the workflow's built-in GITHUB_TOKEN
+# can write. Mirrors the self-polling pattern used by TeoSlayer/homebrew-pilot
+# and pilot-protocol/{sdk-node,homebrew} — no cross-repo PAT.
+#
+# Idempotent: if the formula already pins the latest version, it is a no-op.
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-formula
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REPO: pilot-protocol/aegis
+  FORMULA: Formula/aegis.rb
+
+jobs:
+  update-formula:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout tap
+        uses: actions/checkout@v4
+
+      - name: Resolve latest upstream release
+        id: latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG=$(gh release view --repo "$UPSTREAM_REPO" --json tagName --jq '.tagName')
+          if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
+            echo "::error::could not resolve latest release tag for $UPSTREAM_REPO"
+            exit 1
+          fi
+          echo "tag=$TAG"            >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}"    >> "$GITHUB_OUTPUT"
+          echo "Latest upstream release: $TAG"
+
+      - name: Read currently pinned version
+        id: current
+        run: |
+          set -euo pipefail
+          CUR=$(grep -m1 -E '^\s*version\s+"' "$FORMULA" | sed -E 's/.*version[[:space:]]+"([^"]+)".*/\1/')
+          echo "version=$CUR" >> "$GITHUB_OUTPUT"
+          echo "Formula currently pins: ${CUR:-<none>}"
+
+      - name: Decide whether to update
+        id: decide
+        run: |
+          set -euo pipefail
+          LATEST="${{ steps.latest.outputs.version }}"
+          CURRENT="${{ steps.current.outputs.version }}"
+          if [ "$LATEST" = "$CURRENT" ]; then
+            echo "update=false" >> "$GITHUB_OUTPUT"
+            echo "Already at $LATEST — nothing to do."
+          else
+            echo "update=true" >> "$GITHUB_OUTPUT"
+            echo "Upgrade needed: $CURRENT -> $LATEST"
+          fi
+
+      - name: Download release binaries and compute checksums
+        id: sums
+        if: steps.decide.outputs.update == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.latest.outputs.tag }}"
+          mkdir -p _assets
+          gh release download "$TAG" \
+            --repo "$UPSTREAM_REPO" \
+            --pattern 'aegis-*' \
+            --dir _assets \
+            --clobber
+
+          sum() {
+            local f="_assets/aegis-$1"
+            [ -f "$f" ] || { echo "::error::missing release asset aegis-$1 for $TAG"; exit 1; }
+            shasum -a 256 "$f" | awk '{print $1}'
+          }
+          {
+            echo "darwin_arm=$(sum macos-arm64)"
+            echo "darwin_x86=$(sum macos-x86_64)"
+            echo "linux_arm=$(sum linux-arm64)"
+            echo "linux_x86=$(sum linux-x86_64)"
+          } >> "$GITHUB_OUTPUT"
+          echo "----- computed checksums -----"
+          ( cd _assets && shasum -a 256 aegis-* )
+
+      - name: Regenerate formula
+        if: steps.decide.outputs.update == 'true'
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.latest.outputs.tag }}"
+          VERSION="${{ steps.latest.outputs.version }}"
+          BASE="https://github.com/${UPSTREAM_REPO}/releases/download/${TAG}"
+          DA="${{ steps.sums.outputs.darwin_arm }}"
+          DX="${{ steps.sums.outputs.darwin_x86 }}"
+          LA="${{ steps.sums.outputs.linux_arm }}"
+          LX="${{ steps.sums.outputs.linux_x86 }}"
+          for pair in "darwin-arm64:$DA" "darwin-x86_64:$DX" "linux-arm64:$LA" "linux-x86_64:$LX"; do
+            val="${pair#*:}"
+            [ -n "$val" ] || { echo "::error::missing checksum for ${pair%%:*}"; exit 1; }
+          done
+
+          cat > "$FORMULA" <<RUBY
+          class Aegis < Formula
+            desc "Local agent-guard: stops prompt injection, jailbreaks & infra-impersonation against AI agents"
+            homepage "https://github.com/pilot-protocol/aegis"
+            version "${VERSION}"
+            license "MIT"
+
+            # Prebuilt binaries — no compiler needed, installs in seconds.
+            on_macos do
+              on_arm do
+                url "${BASE}/aegis-macos-arm64"
+                sha256 "${DA}"
+              end
+              on_intel do
+                url "${BASE}/aegis-macos-x86_64"
+                sha256 "${DX}"
+              end
+            end
+            on_linux do
+              on_arm do
+                url "${BASE}/aegis-linux-arm64"
+                sha256 "${LA}"
+              end
+              on_intel do
+                url "${BASE}/aegis-linux-x86_64"
+                sha256 "${LX}"
+              end
+            end
+
+            # The local judge engine. AEGIS still runs (L1 patterns) without it.
+            depends_on "llama.cpp"
+
+            def install
+              bin.install Dir["aegis*"].first => "aegis"
+            end
+
+            service do
+              run [opt_bin/"aegis", "daemon"]
+              keep_alive true
+              log_path var/"log/aegis.log"
+              error_log_path var/"log/aegis.log"
+            end
+
+            def caveats
+              <<~EOS
+                Download the judge model once (~1.8 GB):
+                  aegis install-models
+
+                Protect your agent surfaces:
+                  aegis init
+                  brew services start aegis     # or: aegis daemon
+
+                Wire into Claude Code as a blocking hook:
+                  aegis install-hooks
+
+                When AEGIS blocks a command, approve it once with:
+                  aegis approve '<command>'
+              EOS
+            end
+
+            test do
+              assert_match "aegis #{version}", shell_output("#{bin}/aegis version")
+            end
+          end
+          RUBY
+          # Strip the 10-space heredoc indent.
+          sed -i 's/^          //' "$FORMULA"
+          rm -rf _assets
+          echo "----- regenerated $FORMULA -----"
+          cat "$FORMULA"
+
+      - name: Commit and push
+        if: steps.decide.outputs.update == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- "$FORMULA"; then
+            echo "No change in $FORMULA after regeneration — skipping commit."
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$FORMULA"
+          git commit -m "aegis: bump to ${{ steps.latest.outputs.tag }}"
+          git push
+          echo "Pushed formula update -> ${{ steps.latest.outputs.tag }}"
+
+      - name: Summary
+        run: |
+          {
+            echo "## AEGIS Homebrew formula update"
+            echo "- Upstream latest: \`${{ steps.latest.outputs.tag }}\`"
+            echo "- Was pinned at: \`${{ steps.current.outputs.version }}\`"
+            echo "- Updated: \`${{ steps.decide.outputs.update }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
