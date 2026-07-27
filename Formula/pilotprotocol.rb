@@ -38,38 +38,36 @@ class Pilotprotocol < Formula
     bin.install "updater"  => "pilot-updater"
   end
 
+  # Homebrew runs post_install with HOME pointed at a throwaway sandbox
+  # directory, so anything written to ~/.pilot here is silently discarded.
+  # The inherited formula wrote ~/.pilot/config.json (and a .pilot-version
+  # marker) from post_install and then told the user in caveats that it had
+  # done so — neither ever landed on disk. Only Homebrew-owned paths are
+  # touched here; user config is left to `pilotctl`, with an explicit recipe
+  # in caveats for anyone who wants to pin the endpoints by hand.
   def post_install
     (var/"pilot").mkpath
     (var/"log").mkpath
-
-    config_dir = Pathname.new(Dir.home)/".pilot"
-    config_dir.mkpath
-    (config_dir/"bin").mkpath
-
-    # Version marker read by pilot-updater.
-    (config_dir/"bin/.pilot-version").write "v#{version}\n"
-
-    config_file = config_dir/"config.json"
-    return if config_file.exist?
-
-    config_file.write <<~JSON
-      {
-        "registry": "registry.pilotprotocol.network:9000",
-        "beacon": "beacon.pilotprotocol.network:9001",
-        "socket": "/tmp/pilot.sock",
-        "encrypt": true,
-        "identity": "#{config_dir}/identity.json"
-      }
-    JSON
   end
 
   def caveats
     <<~EOS
-      Config written to ~/.pilot/config.json (if not already present).
-
       Get started:
         pilotctl daemon start --hostname my-agent --email you@example.com
         pilotctl info
+
+      The daemon falls back to its built-in endpoints when no config is
+      present. To pin them to DNS instead of the baked-in address:
+
+        mkdir -p ~/.pilot && cat > ~/.pilot/config.json <<'JSON'
+        {
+          "registry": "registry.pilotprotocol.network:9000",
+          "beacon": "beacon.pilotprotocol.network:9001",
+          "socket": "/tmp/pilot.sock",
+          "encrypt": true,
+          "identity": "#{Dir.home}/.pilot/identity.json"
+        }
+        JSON
 
       Docs: https://pilotprotocol.network/docs
 
