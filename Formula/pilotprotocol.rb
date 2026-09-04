@@ -1,29 +1,29 @@
 class Pilotprotocol < Formula
   desc "Network stack for AI agents - addresses, ports, tunnels, encryption, trust"
   homepage "https://pilotprotocol.network"
-  version "1.13.7"
+  version "1.13.9"
   license "AGPL-3.0-or-later"
 
   # Prebuilt binaries — no Go toolchain needed, installs in seconds.
   on_macos do
     on_arm do
-      url "https://github.com/pilot-protocol/pilotprotocol/releases/download/v1.13.7/pilot-darwin-arm64.tar.gz"
-      sha256 "fd40750bd53c06ae6306d6945580e8dbf6f9e9393ff549bbb4269a2be02cfcf5"
+      url "https://github.com/pilot-protocol/pilotprotocol/releases/download/v1.13.9/pilot-darwin-arm64.tar.gz"
+      sha256 "5dcd964af56bc362c51f663948f7a728e0259e80efc06eb6b0985f70eb2e17fa"
     end
     on_intel do
-      url "https://github.com/pilot-protocol/pilotprotocol/releases/download/v1.13.7/pilot-darwin-amd64.tar.gz"
-      sha256 "8210cf4ca5532fb6d350ae532d7cd58fb9716e514617eaa59a9faf2b1560ff9c"
+      url "https://github.com/pilot-protocol/pilotprotocol/releases/download/v1.13.9/pilot-darwin-amd64.tar.gz"
+      sha256 "18b26c0e19370871894165711c51c44e372ba87210ef95da7a705154f1e108e4"
     end
   end
 
   on_linux do
     on_arm do
-      url "https://github.com/pilot-protocol/pilotprotocol/releases/download/v1.13.7/pilot-linux-arm64.tar.gz"
-      sha256 "5a5e2d2eb6fed41274cd00794a180082056f68d2469de91366c46ae7fb3ed800"
+      url "https://github.com/pilot-protocol/pilotprotocol/releases/download/v1.13.9/pilot-linux-arm64.tar.gz"
+      sha256 "a07c7f7592bd9f26441c36539717eb5bd14e755d23bfbe3ec45aaaca8c1f52af"
     end
     on_intel do
-      url "https://github.com/pilot-protocol/pilotprotocol/releases/download/v1.13.7/pilot-linux-amd64.tar.gz"
-      sha256 "3466f78b0be04e571910a2bd46b81dcf59503472b868ca2f6450f8173bb8fced"
+      url "https://github.com/pilot-protocol/pilotprotocol/releases/download/v1.13.9/pilot-linux-amd64.tar.gz"
+      sha256 "2f2366157ad1124a384904050c42084ff06d14df668a8e9f69eaa38b1e00fb45"
     end
   end
 
@@ -36,18 +36,6 @@ class Pilotprotocol < Formula
     bin.install "daemon"   => "pilot-daemon"
     bin.install "pilotctl" => "pilotctl"
     bin.install "updater"  => "pilot-updater"
-  end
-
-  # Homebrew runs post_install with HOME pointed at a throwaway sandbox
-  # directory, so anything written to ~/.pilot here is silently discarded.
-  # The inherited formula wrote ~/.pilot/config.json (and a .pilot-version
-  # marker) from post_install and then told the user in caveats that it had
-  # done so — neither ever landed on disk. Only Homebrew-owned paths are
-  # touched here; user config is left to `pilotctl`, with an explicit recipe
-  # in caveats for anyone who wants to pin the endpoints by hand.
-  def post_install
-    (var/"pilot").mkpath
-    (var/"log").mkpath
   end
 
   def caveats
